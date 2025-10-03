@@ -1,0 +1,15 @@
+# 네이버 쇼핑 크롤링 프로젝트 의존성
+
+# Selenium WebDriver
+selenium>=4.15.0
+
+# Chrome WebDriver 자동 관리
+webdriver-manager>=4.0.1
+chromedriver-autoinstaller>=0.6.2
+
+# 데이터 처리
+numpy>=1.24.0
+
+# 추가 유틸리티 (선택사항)
+requests>=2.31.0
+beautifulsoup4>=4.12.0

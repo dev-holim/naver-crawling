@@ -1,122 +1,122 @@
-# import os
-import time
-import numpy as np
-# import subprocess
 import sys
 import json
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+import logging
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+from crawler_base import BaseNaverCrawler
 
-# selenium 드라이버를 크롬버젼에 맞춰 다운로드하고 경로를 찾을 필요 없이 자동적으로 업데이트 되
-from webdriver_manager.chrome import ChromeDriverManager
-import chromedriver_autoinstaller
+# 로깅 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-class CrawlingNaverShopList:
-  ''' 기본 크롬 브라우저 설정 '''
-  def __init__(self,url):
-    chromedriver_autoinstaller.install()  # chromedriver 자동 다운로드
-    portNum = "9515"
-    # os.startfile(f"runChromeDebug{portNum}.bat")  # 디버그 모드로 chrome 실행
-    # self.process = subprocess.Popen(['start', f"runChromeDebug{portNum}.bat"], shell=True)
+class NaverShopCrawler(BaseNaverCrawler):
+    """네이버 쇼핑 베스트 카테고리 크롤러 (단일 URL)"""
+    
+    def crawl_url(self, url):
+        """
+        URL에서 상품 정보 크롤링
+        
+        Args:
+            url (str): 크롤링할 네이버 쇼핑 URL
+            
+        Returns:
+            dict: 크롤링 결과
+        """
+        try:
+            logger.info(f"크롤링 시작: {url}")
+            self.driver.get(url)
+            
+            # 페이지 로딩 대기
+            self._wait_for_page_load()
+            
+            # 스크롤하여 모든 상품 로드
+            self._scroll_to_load_all()
+            
+            # 상품 정보 추출
+            products = self._extract_product_data()
+            
+            result = {
+                "code": 200,
+                "data": products,
+                "count": len(products),
+                "url": url
+            }
+            
+            logger.info(f"크롤링 완료: {len(products)}개 상품 수집")
+            return result
+            
+        except Exception as e:
+            logger.error(f"크롤링 실패: {e}")
+            return {"code": 404, "error": str(e)}
+    
+    def _extract_product_data(self):
+        """상품 데이터 추출 (one_by_one.py 전용)"""
+        try:
+            # 컨테이너 요소 찾기
+            container = WebDriverWait(self.driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, '//*[@id="container"]'))
+            )
+            
+            category_panel = container.find_element(By.CLASS_NAME, "category_panel")
+            product_list = category_panel.find_element(By.TAG_NAME, "ul")
+            product_items = product_list.find_elements(By.TAG_NAME, "li")
+            
+            products = []
+            
+            for li in product_items:
+                try:
+                    product_data = self._extract_single_product(li)
+                    if product_data:
+                        products.append(product_data)
+                except Exception as e:
+                    logger.warning(f"상품 데이터 추출 실패: {e}")
+                    continue
+            
+            return products
+            
+        except TimeoutException:
+            logger.error("상품 목록 요소를 찾을 수 없습니다")
+            return []
+        except Exception as e:
+            logger.error(f"상품 데이터 추출 중 오류: {e}")
+            return []
 
-    # subprocess.Popen(r'C:/Program Files/Google/Chrome/Application/chrome.exe --remote-debugging-port=9222')
-    # 디버거 크롬 동작
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
-    # chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9515")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    # chrome_options.add_argument('--headless')  # 브라우저를 띄우지 않고 실행
-    chrome_options.add_argument("--no-sandbox"); # OS security model
-    chrome_options.add_argument('disable-gpu') # 하드웨어 가속 안함
-    chrome_options.add_argument('--start-fullscreen') # 전체화면
-    self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()),options=chrome_options) # port=portNum
-    self.driver.get(url)
-  
-  def init_(self):
-    self.scroll_page()
-    HTMLCONTENTS = self.get_scrap_html()
-    return HTMLCONTENTS
-
-  ''' html 스크래핑(정보를 추출) '''
-  def get_scrap_html(self):
+def main():
+    """메인 실행 함수"""
     try:
-      # temperature = driver.find_element_by_xpath('//*[@id="main_pack"]/section[1]/div[1]/div[2]/div[1]/div[1]/div/div[2]/div/div[1]/div[2]/strong').text
-      element = WebDriverWait(self.driver,3).until(EC.presence_of_element_located((By.XPATH, '//*[@id="container"]')))
-      element = element.find_element(By.CLASS_NAME,"category_panel")
-      ul = element.find_element(By.TAG_NAME,"ul")
-      # ul = element.find_element(By.TAG_NAME,"ul").get_attribute('innerHTML')
-      li_all = ul.find_elements(By.TAG_NAME,"li")
-
-      return_data = []
-      for li in li_all:
-        text_elements = li.find_element(By.XPATH, "a[1]/div[2]/div[1]") # 텍스트 div box
-        # 최저가 여부
-        if "최저" in text_elements.text:
-          is_max_low = True
-        else:
-          is_max_low = False
+        # 명령행 인수에서 JSON 데이터 읽기
+        if len(sys.argv) < 2:
+            logger.error("URL 데이터가 제공되지 않았습니다")
+            print(json.dumps({"code": 400, "error": "URL 데이터가 필요합니다"}))
+            return
+        
+        post_value = sys.argv[1]
+        dict_data = json.loads(post_value)
+        
+        if 'url' not in dict_data:
+            logger.error("URL이 제공되지 않았습니다")
+            print(json.dumps({"code": 400, "error": "URL이 필요합니다"}))
+            return
+        
+        url = dict_data['url']
+        
+        # 크롤러 생성 및 실행
+        crawler = NaverShopCrawler(headless=False)
         
         try:
-          span_element = text_elements.find_element(By.TAG_NAME,"span")
-          svg_element = text_elements.find_element(By.TAG_NAME,"svg")
-        except:
-          span_element = ""
-          svg_element = ""
+            result = crawler.crawl_url(url)
+            print(json.dumps(result, ensure_ascii=False))
+        finally:
+            crawler.close()
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON 파싱 오류: {e}")
+        print(json.dumps({"code": 400, "error": "잘못된 JSON 형식입니다"}))
+    except Exception as e:
+        logger.error(f"실행 중 오류 발생: {e}")
+        print(json.dumps({"code": 500, "error": str(e)}))
 
-        # 네이버 최저값
-        price_text = text_elements.find_element(By.TAG_NAME,"strong").text
-        if "," in price_text:
-          price_text = price_text.replace(",","")
-
-        # 배송비
-        delivery_text = ""
-        if span_element and svg_element:
-          delivery_text = span_element.get_attribute('innerHTML').split('</svg>')[1]
-          if "원" in delivery_text:
-            delivery_text = delivery_text.replace("원","")
-          if "," in delivery_text:
-            delivery_text = delivery_text.replace(",","")
-
-        return_data.append({
-          'productId':li.get_attribute("id"),  # 네이버 상품 id
-          'isMaxLow':is_max_low,  # 최저가 여부
-          'lowPrice':price_text,  # 네이버 최저값
-          'deliveryPrice':delivery_text,  # 배송비
-        })
-      return json.dumps({"data":return_data,"count":len(li_all)})
-    except:
-      return {'code':404}
-    finally:
-      self.driver.quit()
-
-  ''' scroll action '''
-  def scroll_page(self):
-    # scroll pause 시간
-    SCROLL_PAUSE_TIME = np.random.randint(1,3)
-
-    # scroll 높이
-    last_height = self.driver.execute_script("return document.body.scrollHeight")
-
-    while True:
-      self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-      # 봇으로 감지되지 않도록 임의의 PAUSE TIME 설정
-      time.sleep(SCROLL_PAUSE_TIME)
-      new_height = self.driver.execute_script("return document.body.scrollHeight")
-      if new_height == last_height:
-        break
-      last_height = new_height
-    
-     
-POST_VALUE = sys.argv[1]
-dict_data = json.loads(POST_VALUE)
-try:
-  if dict_data['url']:
-    CrawlingClass = CrawlingNaverShopList(dict_data['url'])
-    data = CrawlingClass.init_()
-    print(data)
-except:
-  print('error')
+if __name__ == "__main__":
+    main()
